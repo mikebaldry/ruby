@@ -423,6 +423,7 @@ typedef struct token_info {
                  |<---------->|
                      token
 */
+
 struct parser_params {
     rb_imemo_tmpbuf_t *heap;
 
@@ -495,7 +496,7 @@ struct parser_params {
     rb_parser_config_t *config;
 #endif
     /* compile_option */
-    signed int frozen_string_literal:2; /* -1: not specified, 0: false, 1: true */
+    BITFIELD(enum frozen_string_literal_mode, frozen_string_literal, 2);
 
     unsigned int command_start:1;
     unsigned int eofp: 1;
@@ -9315,17 +9316,34 @@ parser_set_token_info(struct parser_params *p, const char *name, const char *val
 static void
 parser_set_frozen_string_literal(struct parser_params *p, const char *name, const char *val)
 {
-    int b;
-
     if (p->token_seen) {
         rb_warning1("`%s' is ignored after any tokens", WARN_S(name));
         return;
     }
 
-    b = parser_get_bool(p, name, val);
-    if (b < 0) return;
+    switch (*val) {
+      case 't': case 'T':
+        if (STRCASECMP(val, "true") == 0) {
+            p->frozen_string_literal = frozen_string_literal_mode_on;
+            return;
+        }
+        break;
+      case 'f': case 'F':
+        if (STRCASECMP(val, "false") == 0) {
+            p->frozen_string_literal = frozen_string_literal_mode_off;
+            return;
+        }
+        break;
+      case 'w': case 'W':
+        if (STRCASECMP(val, "warn") == 0) {
+            p->frozen_string_literal = frozen_string_literal_mode_warn;
+            return;
+        }
+        break;
+    }
 
-    p->frozen_string_literal = b;
+    parser_invalid_pragma_value(p, name, val);
+    p->frozen_string_literal = frozen_string_literal_mode_not_specified;
 }
 
 static void
@@ -15453,7 +15471,7 @@ parser_initialize(struct parser_params *p)
     p->lex.lpar_beg = -1; /* make lambda_beginning_p() == FALSE at first */
     p->node_id = 0;
     p->delayed.token = Qnil;
-    p->frozen_string_literal = -1; /* not specified */
+    p->frozen_string_literal = frozen_string_literal_mode_not_specified;
 #ifdef RIPPER
     p->result = Qnil;
     p->parsing_thread = Qnil;

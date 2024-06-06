@@ -1090,7 +1090,7 @@ typedef struct rb_ast_body_struct {
     // script_lines is either:
     // - a Fixnum that represents the line count of the original source, or
     // - an Array that contains the lines of the original source
-    signed int frozen_string_literal:2; /* -1: not specified, 0: false, 1: true */
+    signed int frozen_string_literal:2; /* -2: warn, -1: false, 0: not specified, 1: true */
     signed int coverage_enabled:2; /* -1: not specified, 0: false, 1: true */
 } rb_ast_body_t;
 typedef struct rb_ast_struct {

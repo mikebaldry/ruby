@@ -1470,7 +1470,7 @@ rb_binding_add_dynavars(VALUE bindval, rb_binding_t *bind, int dyncount, const I
     tmp_node.nd_args = 0;
 
     ast.root = RNODE(&tmp_node);
-    ast.frozen_string_literal = -1;
+    ast.frozen_string_literal = frozen_string_literal_mode_not_specified;
     ast.coverage_enabled = -1;
     ast.script_lines = INT2FIX(-1);
 

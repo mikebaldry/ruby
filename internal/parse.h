@@ -47,6 +47,13 @@ typedef struct rb_strterm_struct {
     } u;
 } rb_strterm_t;
 
+enum frozen_string_literal_mode {
+    frozen_string_literal_mode_warn = -2,
+    frozen_string_literal_mode_off = -1,
+    frozen_string_literal_mode_not_specified = 0,
+    frozen_string_literal_mode_on = 1,
+};
+
 /* parse.y */
 void rb_ruby_parser_mark(void *ptr);
 size_t rb_ruby_parser_memsize(const void *ptr);

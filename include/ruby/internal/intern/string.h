@@ -518,6 +518,7 @@ void rb_str_shared_replace(VALUE dst, VALUE src);
  *              converted into `dst`'s one, into the end of `dst`.
  */
 VALUE rb_str_buf_append(VALUE dst, VALUE src);
+VALUE rb_str_buf_append_user(VALUE dst, VALUE src);
 
 /** @alias{rb_str_cat} */
 VALUE rb_str_buf_cat(VALUE, const char*, long);

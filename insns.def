@@ -378,6 +378,19 @@ putstring
     val = rb_ec_str_resurrect(ec, str);
 }
 
+DEFINE_INSN
+putstring_frozen_warn
+(VALUE str)
+()
+(VALUE val)
+{
+    val = rb_ec_str_resurrect(ec, str);
+
+    VALUE created_info = rb_ary_new_from_args(2, rb_iseq_path(GET_ISEQ()), INT2NUM(rb_vm_get_sourceline(GET_CFP())));
+    rb_ivar_set(val, id_warn_frozen_string_literal_created_info, rb_obj_freeze(created_info));
+    FL_SET(val, FL_USER0);
+}
+
 /* put concatenate strings */
 DEFINE_INSN
 concatstrings

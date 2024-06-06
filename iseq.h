@@ -14,6 +14,7 @@
 #include "shape.h"
 #include "vm_core.h"
 #include "prism_compile.h"
+#include "internal/parse.h"
 
 RUBY_EXTERN const int ruby_api_version[];
 #define ISEQ_MAJOR_VERSION ((unsigned int)ruby_api_version[0])
@@ -229,7 +230,7 @@ struct rb_compile_option_struct {
     unsigned int specialized_instruction: 1;
     unsigned int operands_unification: 1;
     unsigned int instructions_unification: 1;
-    unsigned int frozen_string_literal: 1;
+    enum frozen_string_literal_mode frozen_string_literal: 2;
     unsigned int debug_frozen_string_literal: 1;
     unsigned int coverage_enabled: 1;
     int debug_level;
