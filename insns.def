@@ -376,6 +376,11 @@ putstring
 (VALUE val)
 {
     val = rb_ec_str_resurrect(ec, str);
+    VALUE created_info;
+    if (FL_TEST(str, FL_USER0) && !NIL_P(created_info = rb_attr_get(str, id_warn_frozen_string_literal_created_info))) {
+        rb_ivar_set(val, id_warn_frozen_string_literal_created_info, created_info);
+        FL_SET(val, FL_USER0);
+    }
 }
 
 /* put concatenate strings */

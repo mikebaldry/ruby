@@ -495,7 +495,7 @@ struct parser_params {
     rb_parser_config_t *config;
 #endif
     /* compile_option */
-    signed int frozen_string_literal:2; /* -1: not specified, 0: false, 1: true */
+    signed int frozen_string_literal:2; /* -2: warn, -1: not specified, 0: false, 1: true */
 
     unsigned int command_start:1;
     unsigned int eofp: 1;
@@ -9315,17 +9315,33 @@ parser_set_token_info(struct parser_params *p, const char *name, const char *val
 static void
 parser_set_frozen_string_literal(struct parser_params *p, const char *name, const char *val)
 {
-    int b;
-
     if (p->token_seen) {
         rb_warning1("`%s' is ignored after any tokens", WARN_S(name));
         return;
     }
 
-    b = parser_get_bool(p, name, val);
-    if (b < 0) return;
+    switch (*val) {
+      case 't': case 'T':
+        if (STRCASECMP(val, "true") == 0) {
+            p->frozen_string_literal = 1;
+            return;
+        }
+        break;
+      case 'f': case 'F':
+        if (STRCASECMP(val, "false") == 0) {
+            p->frozen_string_literal = 0;
+            return;
+        }
+        break;
+      case 'w': case 'W':
+        if (STRCASECMP(val, "warn") == 0) {
+            p->frozen_string_literal = -2;
+            return;
+        }
+        break;
+    }
 
-    p->frozen_string_literal = b;
+    p->frozen_string_literal = parser_invalid_pragma_value(p, name, val);
 }
 
 static void

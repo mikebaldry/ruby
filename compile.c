@@ -4652,7 +4652,7 @@ static_literal_node_p(const NODE *node, const rb_iseq_t *iseq)
       case NODE_FALSE:
         return TRUE;
       case NODE_STR:
-        return ISEQ_COMPILE_DATA(iseq)->option->frozen_string_literal;
+        return ISEQ_COMPILE_DATA(iseq)->option->frozen_string_literal == 1;
       default:
         return FALSE;
     }
@@ -8317,7 +8317,7 @@ compile_call_precheck_freeze(rb_iseq_t *iseq, LINK_ANCHOR *const ret, const NODE
         nd_type_p(get_nd_args(node), NODE_LIST) && RNODE_LIST(get_nd_args(node))->as.nd_alen == 1 &&
         nd_type_p(RNODE_LIST(get_nd_args(node))->nd_head, NODE_STR) &&
         ISEQ_COMPILE_DATA(iseq)->current_block == NULL &&
-        !ISEQ_COMPILE_DATA(iseq)->option->frozen_string_literal &&
+        ISEQ_COMPILE_DATA(iseq)->option->frozen_string_literal != 1 &&
         ISEQ_COMPILE_DATA(iseq)->option->specialized_instruction) {
         VALUE str = rb_fstring(RNODE_STR(RNODE_LIST(get_nd_args(node))->nd_head)->nd_lit);
         CHECK(COMPILE(ret, "recv", get_nd_recv(node)));
@@ -9664,7 +9664,7 @@ compile_attrasgn(rb_iseq_t *iseq, LINK_ANCHOR *const ret, const NODE *const node
         nd_type_p(RNODE_ATTRASGN(node)->nd_args, NODE_LIST) && RNODE_LIST(RNODE_ATTRASGN(node)->nd_args)->as.nd_alen == 2 &&
         nd_type_p(RNODE_LIST(RNODE_ATTRASGN(node)->nd_args)->nd_head, NODE_STR) &&
         ISEQ_COMPILE_DATA(iseq)->current_block == NULL &&
-        !ISEQ_COMPILE_DATA(iseq)->option->frozen_string_literal &&
+        ISEQ_COMPILE_DATA(iseq)->option->frozen_string_literal != 1 &&
         ISEQ_COMPILE_DATA(iseq)->option->specialized_instruction)
     {
         VALUE str = rb_fstring(RNODE_STR(RNODE_LIST(RNODE_ATTRASGN(node)->nd_args)->nd_head)->nd_lit);
@@ -10097,8 +10097,17 @@ iseq_compile_each0(rb_iseq_t *iseq, LINK_ANCHOR *const ret, const NODE *const no
         debugp_param("nd_lit", RNODE_STR(node)->nd_lit);
         if (!popped) {
             VALUE lit = RNODE_STR(node)->nd_lit;
-            if (!ISEQ_COMPILE_DATA(iseq)->option->frozen_string_literal) {
-                lit = rb_fstring(lit);
+
+            if (ISEQ_COMPILE_DATA(iseq)->option->frozen_string_literal != 1) {
+                if (ISEQ_COMPILE_DATA(iseq)->option->frozen_string_literal == -2) {
+                    VALUE created_info = rb_ary_new_from_args(2, rb_iseq_path(iseq), INT2FIX(line));
+                    lit = rb_str_dup(lit);
+                    FL_SET(lit, FL_USER0);
+                    rb_ivar_set(lit, id_warn_frozen_string_literal_created_info, rb_obj_freeze(created_info));
+                } else {
+                    lit = rb_fstring(lit);
+                }
+
                 ADD_INSN1(ret, node, putstring, lit);
                 RB_OBJ_WRITTEN(iseq, Qundef, lit);
             }

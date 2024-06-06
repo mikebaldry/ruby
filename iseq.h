@@ -229,7 +229,7 @@ struct rb_compile_option_struct {
     unsigned int specialized_instruction: 1;
     unsigned int operands_unification: 1;
     unsigned int instructions_unification: 1;
-    unsigned int frozen_string_literal: 1;
+    signed int frozen_string_literal: 2;
     unsigned int debug_frozen_string_literal: 1;
     unsigned int coverage_enabled: 1;
     int debug_level;

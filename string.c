@@ -38,6 +38,7 @@
 #include "internal/sanitizers.h"
 #include "internal/string.h"
 #include "internal/transcode.h"
+# include "internal/variable.h"
 #include "probes.h"
 #include "ruby/encoding.h"
 #include "ruby/re.h"
@@ -1749,6 +1750,8 @@ str_duplicate_setup(VALUE klass, VALUE str, VALUE dup)
     }
     FL_SET_RAW(dup, flags & ~FL_FREEZE);
     if (encidx) rb_enc_associate_index(dup, encidx);
+    FL_UNSET(dup, FL_USER0);
+
     return dup;
 }
 
@@ -1793,8 +1796,15 @@ rb_str_dup_m(VALUE str)
     if (LIKELY(BARE_STRING_P(str))) {
         return str_duplicate(rb_obj_class(str), str);
     }
+    else if (FL_TEST(str, FL_USER0) && RBASIC_CLASS(str) == rb_cString && rb_ivar_count(str) == 1) {
+        return str_duplicate(rb_obj_class(str), str);
+    }
     else {
-        return rb_obj_dup(str);
+        VALUE result = rb_obj_dup(str);
+        if (FL_TEST(str, FL_USER0)) {
+            rb_attr_delete(result, id_warn_frozen_string_literal_created_info);
+        }
+        return result;
     }
 }
 
@@ -2419,6 +2429,14 @@ rb_check_lockedtmp(VALUE str)
         rb_raise(rb_eRuntimeError, "can't modify string; temporarily locked");
     }
 }
+
+#define check_frozen_string_literal_warn(meth, str) \
+    ({VALUE created_info; \
+    if (FL_TEST(str, FL_USER0) && !NIL_P(created_info = rb_attr_get(str, id_warn_frozen_string_literal_created_info))) { \
+        VALUE path = rb_ary_entry(created_info, 0); \
+        VALUE line = rb_ary_entry(created_info, 1); \
+        rb_warn("'%s' called on a string that could, in the future be frozen. string created at %"PRIsVALUE":%"PRIsVALUE, meth, path, line); \
+    }})
 
 static inline void
 str_modifiable(VALUE str)
@@ -3521,6 +3539,8 @@ rb_str_concat(VALUE str1, VALUE str2)
     else {
         return rb_str_append(str1, str2);
     }
+
+    check_frozen_string_literal_warn("concat", str1);
 
     encidx = rb_ascii8bit_appendable_encoding_index(enc, code);
     if (encidx >= 0) {
@@ -5509,6 +5529,8 @@ rb_str_aset(VALUE str, VALUE indx, VALUE val)
 static VALUE
 rb_str_aset_m(int argc, VALUE *argv, VALUE str)
 {
+    check_frozen_string_literal_warn("[]=", str);
+
     if (argc == 3) {
         if (RB_TYPE_P(argv[0], T_REGEXP)) {
             rb_str_subpat_set(str, argv[0], argv[1], argv[2]);
@@ -5543,6 +5565,8 @@ rb_str_aset_m(int argc, VALUE *argv, VALUE str)
 static VALUE
 rb_str_insert(VALUE str, VALUE idx, VALUE str2)
 {
+    check_frozen_string_literal_warn("insert", str);
+
     long pos = NUM2LONG(idx);
 
     if (pos == -1) {
@@ -5587,6 +5611,9 @@ rb_str_slice_bang(int argc, VALUE *argv, VALUE str)
     char *p;
 
     rb_check_arity(argc, 1, 2);
+
+    check_frozen_string_literal_warn("slice!", str);
+
     str_modify_keep_cr(str);
     indx = argv[0];
     if (RB_TYPE_P(indx, T_REGEXP)) {
@@ -5769,6 +5796,8 @@ rb_str_sub_bang(int argc, VALUE *argv, VALUE str)
             StringValue(repl);
         }
     }
+
+    check_frozen_string_literal_warn("sub!", str);
 
     pat = get_pat_quoted(argv[0], 1);
 
@@ -6026,6 +6055,7 @@ str_gsub(int argc, VALUE *argv, VALUE str, int bang)
 static VALUE
 rb_str_gsub_bang(int argc, VALUE *argv, VALUE str)
 {
+    check_frozen_string_literal_warn("gsub!", str);
     str_modify_keep_cr(str);
     return str_gsub(argc, argv, str, 1);
 }
@@ -6069,6 +6099,21 @@ VALUE
 rb_str_replace(VALUE str, VALUE str2)
 {
     str_modifiable(str);
+
+    if (str == str2) return str;
+
+    StringValue(str2);
+    str_discard(str);
+    return str_replace(str, str2);
+}
+
+VALUE
+rb_str_replace_user(VALUE str, VALUE str2)
+{
+    check_frozen_string_literal_warn("replace", str);
+
+    str_modifiable(str);
+
     if (str == str2) return str;
 
     StringValue(str2);
@@ -6090,6 +6135,7 @@ rb_str_replace(VALUE str, VALUE str2)
 static VALUE
 rb_str_clear(VALUE str)
 {
+    check_frozen_string_literal_warn("clear", str);
     str_discard(str);
     STR_SET_EMBED(str);
     STR_SET_LEN(str, 0);
@@ -6173,6 +6219,8 @@ rb_str_setbyte(VALUE str, VALUE index, VALUE value)
     VALUE v = rb_to_int(value);
     VALUE w = rb_int_and(v, INT2FIX(0xff));
     char byte = (char)(NUM2INT(w) & 0xFF);
+
+    check_frozen_string_literal_warn("setbyte", str);
 
     if (!str_independent(str))
         str_make_independent(str);
@@ -6426,6 +6474,7 @@ rb_str_bytesplice(int argc, VALUE *argv, VALUE str)
     str_check_beg_len(str, &beg, &len);
     str_check_beg_len(val, &vbeg, &vlen);
     enc = rb_enc_check(str, val);
+    check_frozen_string_literal_warn("bytesplice", str);
     str_modify_keep_cr(str);
     rb_str_update_1(str, beg, len, val, vbeg, vlen);
     rb_enc_associate(str, enc);
@@ -6515,6 +6564,7 @@ rb_str_reverse_bang(VALUE str)
         if (single_byte_optimizable(str)) {
             char *s, *e, c;
 
+            check_frozen_string_literal_warn("reverse!", str);
             str_modify_keep_cr(str);
             s = RSTRING_PTR(str);
             e = RSTRING_END(str) - 1;
@@ -7532,6 +7582,7 @@ rb_str_upcase_bang(int argc, VALUE *argv, VALUE str)
     OnigCaseFoldType flags = ONIGENC_CASE_UPCASE;
 
     flags = check_case_options(argc, argv, flags);
+    check_frozen_string_literal_warn("upcase!", str);
     str_modify_keep_cr(str);
     enc = str_true_enc(str);
     if (case_option_single_p(flags, enc, str)) {
@@ -7634,6 +7685,7 @@ rb_str_downcase_bang(int argc, VALUE *argv, VALUE str)
     OnigCaseFoldType flags = ONIGENC_CASE_DOWNCASE;
 
     flags = check_case_options(argc, argv, flags);
+    check_frozen_string_literal_warn("downcase!", str);
     str_modify_keep_cr(str);
     enc = str_true_enc(str);
     if (case_option_single_p(flags, enc, str)) {
@@ -7719,6 +7771,7 @@ rb_str_capitalize_bang(int argc, VALUE *argv, VALUE str)
     OnigCaseFoldType flags = ONIGENC_CASE_UPCASE | ONIGENC_CASE_TITLECASE;
 
     flags = check_case_options(argc, argv, flags);
+    check_frozen_string_literal_warn("capitalize!", str);
     str_modify_keep_cr(str);
     enc = str_true_enc(str);
     if (RSTRING_LEN(str) == 0 || !RSTRING_PTR(str)) return Qnil;
@@ -7798,6 +7851,7 @@ rb_str_swapcase_bang(int argc, VALUE *argv, VALUE str)
     OnigCaseFoldType flags = ONIGENC_CASE_UPCASE | ONIGENC_CASE_DOWNCASE;
 
     flags = check_case_options(argc, argv, flags);
+    check_frozen_string_literal_warn("swapcase!", str);
     str_modify_keep_cr(str);
     enc = str_true_enc(str);
     if (flags&ONIGENC_CASE_ASCII_ONLY)
@@ -8173,6 +8227,7 @@ tr_trans(VALUE str, VALUE src, VALUE repl, int sflag)
 static VALUE
 rb_str_tr_bang(VALUE str, VALUE src, VALUE repl)
 {
+    check_frozen_string_literal_warn("tr!", str);
     return tr_trans(str, src, repl, 0);
 }
 
@@ -8341,6 +8396,7 @@ rb_str_delete_bang(int argc, VALUE *argv, VALUE str)
         tr_setup_table(s, squeez, i==0, &del, &nodel, enc);
     }
 
+    check_frozen_string_literal_warn("delete!", str);
     str_modify_keep_cr(str);
     ascompat = rb_enc_asciicompat(enc);
     s = t = RSTRING_PTR(str);
@@ -8440,6 +8496,7 @@ rb_str_squeeze_bang(int argc, VALUE *argv, VALUE str)
         }
     }
 
+    check_frozen_string_literal_warn("squeeze!", str);
     str_modify_keep_cr(str);
     s = t = (unsigned char *)RSTRING_PTR(str);
     if (!s || RSTRING_LEN(str) == 0) return Qnil;
@@ -8529,6 +8586,8 @@ rb_str_squeeze(int argc, VALUE *argv, VALUE str)
 static VALUE
 rb_str_tr_s_bang(VALUE str, VALUE src, VALUE repl)
 {
+    check_frozen_string_literal_warn("tr_s!", str);
+
     return tr_trans(str, src, repl, 1);
 }
 
@@ -9577,6 +9636,7 @@ chopped_length(VALUE str)
 static VALUE
 rb_str_chop_bang(VALUE str)
 {
+    check_frozen_string_literal_warn("chop!", str);
     str_modify_keep_cr(str);
     if (RSTRING_LEN(str) > 0) {
         long len;
@@ -9758,6 +9818,8 @@ rb_str_chomp_bang(int argc, VALUE *argv, VALUE str)
 {
     VALUE rs;
     str_modifiable(str);
+    check_frozen_string_literal_warn("chomp!", str);
+
     if (RSTRING_LEN(str) == 0 && argc < 2) return Qnil;
     rs = chomp_rs(argc, argv);
     if (NIL_P(rs)) return Qnil;
@@ -9821,6 +9883,7 @@ rb_str_lstrip_bang(VALUE str)
     char *start, *s;
     long olen, loffset;
 
+    check_frozen_string_literal_warn("lstrip!", str);
     str_modify_keep_cr(str);
     enc = STR_ENC_GET(str);
     RSTRING_GETMEM(str, start, olen);
@@ -9909,6 +9972,7 @@ rb_str_rstrip_bang(VALUE str)
     char *start;
     long olen, roffset;
 
+    check_frozen_string_literal_warn("rstrip!", str);
     str_modify_keep_cr(str);
     enc = STR_ENC_GET(str);
     RSTRING_GETMEM(str, start, olen);
@@ -9972,6 +10036,7 @@ rb_str_strip_bang(VALUE str)
     long olen, loffset, roffset;
     rb_encoding *enc;
 
+    check_frozen_string_literal_warn("strip!", str);
     str_modify_keep_cr(str);
     enc = STR_ENC_GET(str);
     RSTRING_GETMEM(str, start, olen);
@@ -10766,6 +10831,7 @@ static VALUE
 rb_str_delete_prefix_bang(VALUE str, VALUE prefix)
 {
     long prefixlen;
+    check_frozen_string_literal_warn("delete_prefix!", str);
     str_modify_keep_cr(str);
 
     prefixlen = deleted_prefix_length(str, prefix);
@@ -10842,6 +10908,7 @@ rb_str_delete_suffix_bang(VALUE str, VALUE suffix)
 {
     long olen, suffixlen, len;
     str_modifiable(str);
+    check_frozen_string_literal_warn("delete_suffix!", str);
 
     suffixlen = deleted_suffix_length(str, suffix);
     if (suffixlen <= 0) return Qnil;
@@ -10913,6 +10980,7 @@ static VALUE
 rb_str_force_encoding(VALUE str, VALUE enc)
 {
     str_modifiable(str);
+    check_frozen_string_literal_warn("force_encoding", str);
 
     rb_encoding *encoding = rb_to_encoding(enc);
     int idx = rb_enc_to_index(encoding);
@@ -11361,6 +11429,7 @@ str_scrub(int argc, VALUE *argv, VALUE str)
 static VALUE
 str_scrub_bang(int argc, VALUE *argv, VALUE str)
 {
+    check_frozen_string_literal_warn("scrub!", str);
     VALUE repl = argc ? (rb_check_arity(argc, 0, 1), argv[0]) : Qnil;
     VALUE new = rb_str_scrub(str, repl);
     if (!NIL_P(new)) rb_str_replace(str, new);
@@ -11438,6 +11507,7 @@ rb_str_unicode_normalize(int argc, VALUE *argv, VALUE str)
 static VALUE
 rb_str_unicode_normalize_bang(int argc, VALUE *argv, VALUE str)
 {
+    check_frozen_string_literal_warn("unicode_normalize!", str);
     return rb_str_replace(str, unicode_normalize_common(argc, argv, str, id_normalize));
 }
 
@@ -12147,7 +12217,7 @@ Init_String(void)
     rb_define_method(rb_cString, "byteindex", rb_str_byteindex_m, -1);
     rb_define_method(rb_cString, "rindex", rb_str_rindex_m, -1);
     rb_define_method(rb_cString, "byterindex", rb_str_byterindex_m, -1);
-    rb_define_method(rb_cString, "replace", rb_str_replace, 1);
+    rb_define_method(rb_cString, "replace", rb_str_replace_user, 1);
     rb_define_method(rb_cString, "clear", rb_str_clear, 0);
     rb_define_method(rb_cString, "chr", rb_str_chr, 0);
     rb_define_method(rb_cString, "getbyte", rb_str_getbyte, 1);
